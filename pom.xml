@@ -15,7 +15,7 @@
 	<name>task1</name>
 	<description>Task </description>
 	<properties>
-		<java.version>1.9</java.version>
+		<java.version>9</java.version>
 	</properties>
 	<dependencies>
 		<dependency>
