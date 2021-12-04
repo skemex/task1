@@ -1,12 +1,7 @@
 package com.skemex.task1.controller;
 
-import java.sql.Date;
-import java.time.LocalDate;
-import java.time.Year;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,24 +14,22 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.skemex.task1.model.Payment;
+import com.skemex.task1.dto.PaymentDTO;
+import com.skemex.task1.dto.QuotationDTO;
+import com.skemex.task1.map.QuotationMapper;
 import com.skemex.task1.model.Quotation;
-import com.skemex.task1.repository.PaymentRepository;
-import com.skemex.task1.repository.QuotationRepository;
+import com.skemex.task1.service.QuotationService;
 
 @RestController
 public class QuotationController {
 
 	private Logger logger = LoggerFactory.getLogger(this.getClass());
-	private static final Double DAYS_OF_WEEK = 7D;
 
 	@Autowired
-	QuotationRepository quotationRepository;
-	@Autowired
-	PaymentRepository paymentRepository;
+	private QuotationService quotationService;
 
 	@PostMapping("/quotation")
-	public ResponseEntity<?> createQuotation(@RequestBody Quotation quotation) {
+	public ResponseEntity<?> createQuotation(@RequestBody QuotationDTO quotation) {
 		try {
 			Optional<String> opCheck = checkAmount(quotation.getAmount())
 					.or(() -> checkTerms(quotation.getTerms()).or(() -> checkRate(quotation.getRate())));
@@ -44,18 +37,14 @@ public class QuotationController {
 				return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(opCheck.get());
 			}
 
-			Quotation quota = quotationRepository.save(quotation);
-
-			List<Payment> payments = getPayments(quota);
+			List<PaymentDTO> payments = quotationService.getPayments(quotation);
 
 			if (payments.isEmpty()) {
 				return new ResponseEntity<>(HttpStatus.NO_CONTENT);
-			} else {
-				paymentRepository.saveAll(payments);
 			}
 			return new ResponseEntity<>(payments, HttpStatus.OK);
 		} catch (Exception e) {
-			logger.error(e.getMessage());
+			logger.error("Error: %s", e.getCause());
 			return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
@@ -84,31 +73,25 @@ public class QuotationController {
 		}
 	}
 
-	@GetMapping("/quotation/{id}")
-	public ResponseEntity<Quotation> getQuotationById(@PathVariable("id") long id) {
-		Optional<Quotation> quotation = quotationRepository.findById(id);
+	@GetMapping("/quotation")
+	public ResponseEntity<List<QuotationDTO>> getQuotations() {
+		List<QuotationDTO> quotations = quotationService.getQuotations();
+		if (quotations.isEmpty()) {
+			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+		} else {
+			return new ResponseEntity<>(quotations, HttpStatus.OK);
+		}
+	}
 
-		if (quotation.isPresent()) {
-			return new ResponseEntity<>(quotation.get(), HttpStatus.OK);
+	@GetMapping("/quotation/{id}")
+	public ResponseEntity<QuotationDTO> getQuotationById(@PathVariable("id") long id) {
+		Optional<Quotation> opQuotation = quotationService.getQuotationById(id);
+		if (opQuotation.isPresent()) {
+			QuotationDTO quotationDto = QuotationMapper.toDto(opQuotation.get());
+			return new ResponseEntity<>(quotationDto, HttpStatus.OK);
 		} else {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 		}
 	}
 
-	private Double calculateInterest(Quotation quotation) {
-		LocalDate localDate = LocalDate.now();
-		int dayOfYear = Year.of(localDate.getYear()).length();
-		Double days = DAYS_OF_WEEK * Double.valueOf(quotation.getTerms());
-		Double timeOnYears = days / dayOfYear;
-		return quotation.getAmount() * timeOnYears * (quotation.getRate() / 100);
-	}
-
-	private List<Payment> getPayments(Quotation quotation) {
-		List<Payment> payments = new LinkedList<>();
-		LocalDate localDate = LocalDate.now();
-		Double interest = calculateInterest(quotation);
-		IntStream.range(0, quotation.getTerms()).forEach(i -> payments.add(new Payment(quotation.getId(), i + 1,
-				(quotation.getAmount() + interest) / quotation.getTerms(), Date.valueOf(localDate.plusWeeks(i)))));
-		return payments;
-	}
 }
